@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	convert "github.com/szyhf/go-convert"
 	excel "github.com/szyhf/go-excel"
 )
@@ -218,4 +219,118 @@ func TestReadAll(t *testing.T) {
 
 		testReadAllWithOpenedConnector(t, conn)
 	})
+}
+
+func TestReadLimitSharedStrings(t *testing.T) {
+	tests := []struct {
+		name           string
+		limit          int64
+		expectedTitles []string
+		expectedOutput [][][]byte
+		passedMemLimit bool
+	}{
+		{
+			name:           "no limit",
+			limit:          -1,
+			expectedTitles: []string{"ID", "NameOf", "AgeOf", "Slice", "UnmarshalString"},
+			expectedOutput: [][][]byte{
+				{[]byte("1"), []byte("Andy"), []byte("1"), []byte("1|2"), []byte("{\"Foo\":\"Andy\"}")},
+				{[]byte("2"), []byte("Leo"), []byte("2"), []byte("2|3|4"), []byte("{\"Foo\":\"Leo\"}")},
+				{[]byte("3"), []byte("Ben"), nil, []byte("3|4|5|6"), []byte("{\"Foo\":\"Ben\"}")},
+				{[]byte("4"), []byte("Ming"), []byte("4"), []byte("1"), nil},
+			},
+			passedMemLimit: false,
+		},
+		{
+			name:           "zero bytes",
+			limit:          0,
+			expectedTitles: []string{"", "", "", "", ""},
+			expectedOutput: [][][]byte{
+				{[]byte("1"), []byte{}, []byte("1"), []byte{}, []byte{}},
+				{[]byte("2"), []byte{}, []byte("2"), []byte{}, []byte{}},
+				{[]byte("3"), []byte{}, nil, []byte{}, []byte{}},
+				{[]byte("4"), []byte{}, []byte("4"), []byte("1"), nil},
+			},
+			passedMemLimit: true,
+		},
+		{
+			name:           "partial headers",
+			limit:          200,
+			expectedTitles: []string{"ID", "NameOf", "", "", ""},
+			expectedOutput: [][][]byte{
+				{[]byte("1"), []byte{}, []byte("1"), []byte{}, []byte{}},
+				{[]byte("2"), []byte{}, []byte("2"), []byte{}, []byte{}},
+				{[]byte("3"), []byte{}, nil, []byte{}, []byte{}},
+				{[]byte("4"), []byte{}, []byte("4"), []byte("1"), nil},
+			},
+			passedMemLimit: true,
+		},
+		{
+			name:           "partial data",
+			limit:          630,
+			expectedTitles: []string{"ID", "NameOf", "AgeOf", "Slice", "UnmarshalString"},
+			expectedOutput: [][][]byte{
+				{[]byte("1"), []byte("Andy"), []byte("1"), []byte("1|2"), []byte("{\"Foo\":\"Andy\"}")},
+				{[]byte("2"), []byte("Leo"), []byte("2"), []byte("2|3|4"), []byte("{\"Foo\":\"Leo\"}")},
+				{[]byte("3"), []byte("Ben"), nil, []byte{}, []byte{}},
+				{[]byte("4"), []byte{}, []byte("4"), []byte("1"), nil},
+			},
+			passedMemLimit: true,
+		},
+		{
+			name:           "big limit",
+			limit:          1500,
+			expectedTitles: []string{"ID", "NameOf", "AgeOf", "Slice", "UnmarshalString"},
+			expectedOutput: [][][]byte{
+				{[]byte("1"), []byte("Andy"), []byte("1"), []byte("1|2"), []byte("{\"Foo\":\"Andy\"}")},
+				{[]byte("2"), []byte("Leo"), []byte("2"), []byte("2|3|4"), []byte("{\"Foo\":\"Leo\"}")},
+				{[]byte("3"), []byte("Ben"), nil, []byte("3|4|5|6"), []byte("{\"Foo\":\"Ben\"}")},
+				{[]byte("4"), []byte("Ming"), []byte("4"), []byte("1"), nil},
+			},
+			passedMemLimit: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			conn := excel.NewConnecter()
+			err := conn.OpenByConfig(filePath, excel.ConnecterConfig{MaxSharedStringsBytesToRead: test.limit})
+			if err != nil {
+				t.Error(err)
+			}
+
+			rd, err := conn.NewReaderByConfig(&excel.Config{
+				Sheet:         advSheetName,
+				TitleRowIndex: 1,
+				Skip:          1,
+				Prefix:        "",
+				Suffix:        advSheetSuffix,
+			})
+			if err != nil {
+				t.Error(err)
+			}
+
+			if !reflect.DeepEqual(rd.GetTitles(), test.expectedTitles) {
+				t.Errorf("unexpect titles: \n%s", convert.MustJsonPrettyString(rd.GetTitles()))
+			}
+
+			var output [][][]byte
+			err = rd.ReadAll(&output)
+			if err != nil {
+				t.Error(err)
+			}
+
+			if !cmp.Equal(test.expectedOutput, output) {
+				t.Error(cmp.Diff(test.expectedOutput, output))
+			}
+
+			if conn.PassedSharedStringsLimit() != test.passedMemLimit {
+				t.Errorf("unexpect passedMemLimit: %t", conn.PassedSharedStringsLimit())
+			}
+
+			rd.Close()
+			conn.Close()
+		})
+	}
+
 }
