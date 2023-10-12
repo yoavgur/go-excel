@@ -303,7 +303,11 @@ func (rd *read) readToValue(s *schema, v reflect.Value) (err error) {
 			var valStr string
 			if tempCell.T == _S {
 				// get string from shared
-				valStr = rd.connecter.getSharedString(convert.MustInt(string(token)))
+				valStr, err = rd.connecter.getSharedString(convert.MustInt(string(token)))
+				if err != nil {
+					return err
+				}
+
 			} else {
 				valStr = string(token)
 			}
@@ -375,7 +379,11 @@ func (rd *read) readToMapValue(v reflect.Value) (err error) {
 			var valStr string
 			if tempCell.T == _S {
 				// get string from shared
-				valStr = rd.connecter.getSharedString(convert.MustInt(string(token)))
+				valStr, err = rd.connecter.getSharedString(convert.MustInt(string(token)))
+				if err != nil {
+					return err
+				}
+
 			} else {
 				valStr = string(token)
 			}
@@ -438,7 +446,10 @@ func (rd *read) readToSliceValue(v reflect.Value) (err error) {
 			var valStr string
 			if tempCell.T == _S {
 				// get string from shared
-				valStr = rd.connecter.getSharedString(convert.MustInt(string(token)))
+				valStr, err = rd.connecter.getSharedString(convert.MustInt(string(token)))
+				if err != nil {
+					return err
+				}
 			} else {
 				valStr = string(token)
 			}

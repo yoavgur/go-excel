@@ -84,7 +84,10 @@ func newRowAsMap(rd *read) (r *titleRow, err error) {
 
 			if tempCell.T == _S {
 				// get string from shared
-				tempCell.V = rd.connecter.getSharedString(convert.MustInt(string(token)))
+				tempCell.V, err = rd.connecter.getSharedString(convert.MustInt(string(token)))
+				if err != nil {
+					return nil, err
+				}
 			} else {
 				tempCell.V = string(token)
 			}

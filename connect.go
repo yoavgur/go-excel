@@ -12,8 +12,8 @@ import (
 // connect is default implement of connector.
 type connect struct {
 	// list of sorted sheet name
-	sheets            []string
-	sharedStringPaths []string
+	sheets []string
+	ssr    *SharedStringsReader
 
 	// xl/sharedStringPaths.xml
 	sharedStringPathsFile *zip.File
@@ -41,19 +41,29 @@ type connect struct {
 
 // Open a excel file
 func (conn *connect) Open(filePath string) error {
+	return conn.OpenByConfig(filePath, ConnecterConfig{MaxSharedStringsBytesToRead: -1})
+}
+
+// Open a excel file with config
+func (conn *connect) OpenByConfig(filePath string, config ConnecterConfig) error {
 	var err error
 	zipReaderCloser, err := zip.OpenReader(filePath)
 	if err != nil {
 		return err
 	}
-	return conn.OpenReader(&zipReaderCloser.Reader)
+	return conn.OpenReaderByConfig(&zipReaderCloser.Reader, config)
 }
 
 // Open a excel file from a zipReader
 func (conn *connect) OpenReader(reader *zip.Reader) error {
+	return conn.OpenReaderByConfig(reader, ConnecterConfig{MaxSharedStringsBytesToRead: -1})
+}
+
+// Open a excel file from a zipReader with config
+func (conn *connect) OpenReaderByConfig(reader *zip.Reader, config ConnecterConfig) error {
 	conn.zipReader = reader
 	// prepare for files
-	err := conn.init()
+	err := conn.init(config.MaxSharedStringsBytesToRead)
 	if err != nil {
 		if conn.zipReaderCloser != nil {
 			conn.zipReaderCloser.Close()
@@ -67,6 +77,11 @@ func (conn *connect) OpenReader(reader *zip.Reader) error {
 
 // OpenReader read a binary of xlsx file.
 func (conn *connect) OpenBinary(xlsxData []byte) error {
+	return conn.OpenBinaryByConfig(xlsxData, ConnecterConfig{MaxSharedStringsBytesToRead: -1})
+}
+
+// OpenReader read a binary of xlsx file, using config.
+func (conn *connect) OpenBinaryByConfig(xlsxData []byte, config ConnecterConfig) error {
 	rd := bytes.NewReader(xlsxData)
 	var err error
 	conn.zipReader, err = zip.NewReader(rd, int64(rd.Len()))
@@ -74,7 +89,7 @@ func (conn *connect) OpenBinary(xlsxData []byte) error {
 		return err
 	}
 	// prepare for files
-	err = conn.init()
+	err = conn.init(config.MaxSharedStringsBytesToRead)
 	if err != nil {
 		// 没有zipReader，不用Close
 		return err
@@ -94,7 +109,8 @@ func (conn *connect) Close() error {
 	conn.zipReader = nil
 
 	conn.sheets = conn.sheets[:0]
-	conn.sharedStringPaths = conn.sharedStringPaths[:0]
+	// conn.sharedStringPaths = conn.sharedStringPaths[:0]
+	conn.ssr.Close()
 	conn.sharedStringPathsFile = nil
 	conn.workbookFile = nil
 
@@ -163,11 +179,16 @@ func (conn *connect) GetSheetNames() []string {
 	return dst
 }
 
-func (conn *connect) getSharedString(id int) string {
-	return conn.sharedStringPaths[id]
+func (conn *connect) getSharedString(id int) (string, error) {
+	// fmt.Printf("getSharedString(%d, %d):", id, maxId)
+	return conn.ssr.GetString(id)
 }
 
-func (conn *connect) init() (err error) {
+func (conn *connect) PassedSharedStringsLimit() bool {
+	return conn.ssr.PassedMemLimit()
+}
+
+func (conn *connect) init(maxSharedStringsBytesToRead int64) (err error) {
 	// Find file of "workbook.xml", "sharedString.xml" and files in worksheets
 	conn.worksheetFileMap = make(map[string]*zip.File)
 	for _, f := range conn.zipReader.File {
@@ -210,7 +231,7 @@ func (conn *connect) init() (err error) {
 		return errors.New("read workbook failed:" + err.Error())
 	}
 	// prepare sharedstring
-	err = conn.readSharedString()
+	conn.ssr, err = NewSharedStringsReader(conn.sharedStringPathsFile, maxSharedStringsBytesToRead)
 	if err != nil {
 		return errors.New("read shared string failed:" + err.Error())
 	}
@@ -272,21 +293,6 @@ func (conn *connect) readWorkbook() error {
 		conn.worksheetNameFileMap[sheet.Name] = file
 		conn.worksheetIDToNameMap[sheet.SheetID] = sheet.Name
 	}
-	rc.Close()
-	return nil
-}
-
-func (conn *connect) readSharedString() error {
-	// sharedStringPathsFile may not exist
-	if conn.sharedStringPathsFile == nil {
-		conn.sharedStringPaths = make([]string, 0)
-		return nil
-	}
-	rc, err := conn.sharedStringPathsFile.Open()
-	if err != nil {
-		return err
-	}
-	conn.sharedStringPaths = readSharedStringsXML(rc)
 	rc.Close()
 	return nil
 }

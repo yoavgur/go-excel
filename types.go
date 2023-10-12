@@ -39,16 +39,33 @@ type Reader interface {
 	Close() error
 }
 
+type ConnecterConfig struct {
+	// The maximum amount of bytes to read from the shared strings file. This is used to prevent reading too much of the
+	// shared strings table if memory or bandwidth is limited. If this value is -1, the entire shared strings table
+	// will be read. If when trying to resolve a string we cross this threshold, the string will be returned
+	// as an empty string.
+	MaxSharedStringsBytesToRead int64
+}
+
 // An Connecter of excel file
 type Connecter interface {
 	// Open a file of excel
 	Open(filePath string) error
 
+	// Open a file of excel with config
+	OpenByConfig(filePath string, config ConnecterConfig) error
+
 	// Open a zip.Reader of a file of excel
 	OpenReader(reader *zip.Reader) error
 
+	// Open a zip.Reader of a file of excel with config
+	OpenReaderByConfig(reader *zip.Reader, config ConnecterConfig) error
+
 	// Open a binary of excel
 	OpenBinary(xlsxData []byte) error
+
+	// Open a binary of excel with config
+	OpenBinaryByConfig(xlsxData []byte, config ConnecterConfig) error
 
 	// Close file reader
 	Close() error
@@ -73,4 +90,5 @@ type Connecter interface {
 
 	NewReaderByConfig(config *Config) (Reader, error)
 	MustReaderByConfig(config *Config) Reader
+	PassedSharedStringsLimit() bool
 }

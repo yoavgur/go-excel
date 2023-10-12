@@ -21,4 +21,6 @@ var (
 	ErrScanNil = errors.New("scan(nil)")
 	// ErrDuplicatedTitles means the row of title has duplicated value and can not read into a map or struct since it need unique keys.
 	ErrDuplicatedTitles = errors.New("title row has duplicated key and can not read into a map or struct")
+	// ErrNoSharedStringsFile means that even though no shared strings file was found, a shared string was requested.
+	ErrNoSharedStringsFile = errors.New("no shared strings file")
 )
